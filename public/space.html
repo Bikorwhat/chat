@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="chyatt — Free chat space." />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>chyatt</title>
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/chat.css" />
+</head>
+<body>
+  <!-- ── App Shell ── -->
+  <div class="app-shell" id="js-app" hidden>
+
+    <!-- ── Sidebar ── -->
+    <aside class="sidebar" id="js-sidebar">
+      <div class="sidebar-header">
+        <a href="/" class="logo-small">
+          <span>chyatt</span>
+        </a>
+      </div>
+
+      <div class="space-info">
+        <div class="space-id-label">Space ID</div>
+        <div class="space-id-value" id="js-space-id-display">—</div>
+        <button class="btn-copy" id="js-copy-link" title="Copy shareable link">
+          <span class="copy-icon">⎘</span>
+          Copy Link
+        </button>
+      </div>
+
+      <div class="user-list-section">
+        <div class="section-header">
+          <span>Participants</span>
+          <span class="badge" id="js-user-count">0</span>
+        </div>
+        <ul class="user-list" id="js-user-list" aria-label="Active participants">
+          <!-- Populated dynamically -->
+        </ul>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="my-identity" id="js-my-identity">
+          <div class="avatar" id="js-my-avatar">?</div>
+          <span class="my-name" id="js-my-name">—</span>
+          <span class="badge-me">You</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── Main Chat Area ── -->
+    <div class="chat-main">
+
+      <!-- ── Top Header ── -->
+      <header class="chat-header">
+        <div class="chat-header-left">
+          <button class="btn-icon-only sidebar-open-btn" id="js-sidebar-open" aria-label="Open sidebar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+          <div class="chat-header-info">
+            <div class="space-name-header">
+              <span class="dot dot--green pulse"></span>
+              <span id="js-header-space-id" class="space-name-text">—</span>
+            </div>
+            <div class="header-meta">
+              <span id="js-header-user-count">0 participants</span>
+              <span class="sep">·</span>
+              <span id="js-chat-mode-label">Group Chat</span>
+            </div>
+          </div>
+        </div>
+        <div class="chat-header-right">
+          <button class="btn-header" id="js-header-copy-link" title="Copy room link">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            Share
+          </button>
+          <button class="btn-header btn-header--danger" id="js-leave-btn" title="Leave space">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Leave
+          </button>
+        </div>
+      </header>
+
+      <!-- ── Messages Canvas ── -->
+      <div class="messages-canvas" id="js-messages" role="log" aria-live="polite" aria-label="Chat messages">
+        <!-- Empty state -->
+        <div class="empty-state" id="js-empty-state">
+          <div class="empty-icon">💬</div>
+          <p class="empty-title">Space is ready</p>
+          <p class="empty-desc">Share the link and start chatting. Messages only exist while you're here.</p>
+        </div>
+      </div>
+
+      <!-- ── Typing Indicator ── -->
+      <div class="typing-bar" id="js-typing-bar" aria-live="polite"></div>
+
+      <!-- ── Drop Zone Overlay ── -->
+      <div class="drop-zone" id="js-drop-zone" aria-hidden="true">
+        <div class="drop-zone-content">
+          <div class="drop-icon">📎</div>
+          <p>Drop your file here</p>
+          <p class="drop-sub">Images · Videos · Audio</p>
+        </div>
+      </div>
+
+      <!-- ── Voice Recorder Bar ── -->
+      <div class="recorder-bar" id="js-recorder-bar" hidden>
+        <div class="recorder-indicator">
+          <span class="rec-dot"></span>
+          <span class="rec-label">Recording</span>
+          <span class="rec-timer" id="js-rec-timer">0:00</span>
+        </div>
+        <div class="recorder-waveform" id="js-waveform" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="recorder-controls">
+          <button class="btn-rec btn-rec--cancel" id="js-rec-cancel" title="Cancel recording">✕ Cancel</button>
+          <button class="btn-rec btn-rec--stop" id="js-rec-stop" title="Stop and send">⬛ Send</button>
+        </div>
+      </div>
+
+      <!-- ── Input Bar ── -->
+      <div class="input-bar">
+        <!-- Media upload -->
+        <div class="input-actions-left">
+          <button class="btn-input-action" id="js-attach-btn" title="Attach file" aria-label="Attach image or video">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+          <input type="file" id="js-file-input" accept="image/*,video/*,audio/*" hidden aria-hidden="true" />
+          <button class="btn-input-action btn-mic" id="js-mic-btn" title="Record voice note" aria-label="Record voice note">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Text input -->
+        <div class="input-field-wrap">
+          <textarea
+            id="js-message-input"
+            class="message-input"
+            placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+            rows="1"
+            maxlength="500"
+            autocomplete="off"
+            spellcheck="true"
+            aria-label="Message input"
+          ></textarea>
+          <!-- Reply preview -->
+          <div class="reply-preview" id="js-reply-preview" hidden>
+            <span class="reply-label">Replying to</span>
+            <span class="reply-name" id="js-reply-name"></span>
+            <span class="reply-text-preview" id="js-reply-text"></span>
+            <button class="reply-cancel" id="js-reply-cancel" aria-label="Cancel reply">✕</button>
+          </div>
+        </div>
+
+        <!-- Send button -->
+        <button class="btn-send" id="js-send-btn" aria-label="Send message" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Loading Screen ── -->
+  <div class="loading-screen" id="js-loading">
+    <div class="loading-logo">
+      <span class="loading-text">chyatt</span>
+    </div>
+    <div class="loading-spinner"></div>
+    <p class="loading-status" id="js-loading-status">Connecting to space...</p>
+  </div>
+
+  <!-- ── Name Prompt (if missing from session) ── -->
+  <div class="modal-overlay" id="js-name-modal" role="dialog" aria-modal="true" aria-labelledby="name-modal-title" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-icon">👤</div>
+        <h2 class="modal-title" id="name-modal-title">Choose a display name</h2>
+        <p class="modal-desc">Temporary only — vanishes when you leave.</p>
+      </div>
+      <div class="modal-body">
+        <input
+          type="text"
+          id="js-name-input"
+          class="input"
+          placeholder="Display name..."
+          maxlength="30"
+          autocomplete="off"
+          aria-label="Your display name"
+        />
+        <p class="input-hint" id="js-name-hint"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn--primary btn--full" id="js-name-confirm">Enter Space →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Lightbox for media ── -->
+  <div class="lightbox" id="js-lightbox" hidden role="dialog" aria-modal="true" aria-label="Media viewer">
+    <div class="lightbox-backdrop" id="js-lightbox-backdrop"></div>
+    <div class="lightbox-content">
+      <button class="lightbox-close" id="js-lightbox-close" aria-label="Close viewer">✕</button>
+      <div class="lightbox-media" id="js-lightbox-media"></div>
+    </div>
+  </div>
+
+  <!-- ── Toast container ── -->
+  <div class="toast-container" id="js-toast" role="alert" aria-live="assertive"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/chat.js"></script>
+</body>
+</html>

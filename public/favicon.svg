@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="chyatt-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="50%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#0f0f17" />
+  <path d="M18 20C18 16.6863 20.6863 14 24 14H40C43.3137 14 46 16.6863 46 20V34C46 37.3137 43.3137 40 40 40H28L20 47V40C18.8954 40 18 39.1046 18 38V20Z" fill="url(#chyatt-grad)" />
+  <circle cx="26" cy="27" r="2.5" fill="#ffffff" />
+  <circle cx="32" cy="27" r="2.5" fill="#ffffff" />
+  <circle cx="38" cy="27" r="2.5" fill="#ffffff" />
+</svg>
