@@ -27,12 +27,4 @@ Open **http://localhost:3000**
 - Live typing indicators
 - XSS sanitization + rate limiting
 - Auto room garbage collection
-
-## 🌐 Deploy to Render
-
-1. Push to GitHub
-2. Render → New Web Service → connect repo
-3. Build: `npm install` | Start: `npm start`
-4. Deploy!
-
-> Render is recommended over Vercel for Socket.io apps.
+- Bounded RAM: unjoined spaces expire after 1 minute and each message after 2 minutes; limits of 250 spaces, 500 connections, and 256MB retained media per server process

@@ -68,7 +68,7 @@
           </button>
           <div class="chat-header-info">
             <div class="space-name-header">
-              <span class="dot dot--green pulse"></span>
+              <!-- <span class="dot dot--green pulse"></span> -->
               <span id="js-header-space-id" class="space-name-text">—</span>
             </div>
             <div class="header-meta">
@@ -79,12 +79,13 @@
           </div>
         </div>
         <div class="chat-header-right">
+          <p class="space-retention-note">Messages are automatically deleted 2 minutes after sending.</p>
           <button class="btn-header" id="js-header-copy-link" title="Copy room link">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
             </svg>
-            Share
+            Share URL
           </button>
           <button class="btn-header btn-header--danger" id="js-leave-btn" title="Leave space">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -199,7 +200,12 @@
 
   <!-- ── Name Prompt (if missing from session) ── -->
   <div class="modal-overlay" id="js-name-modal" role="dialog" aria-modal="true" aria-labelledby="name-modal-title" hidden>
-    <div class="modal">
+    <div class="modal modal--name">
+      <button class="modal-close btn-icon-only" id="js-name-cancel" type="button" aria-label="Cancel and return home" title="Cancel">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="m18 6-12 12M6 6l12 12"/>
+        </svg>
+      </button>
       <div class="modal-header">
         <div class="modal-icon">👤</div>
         <h2 class="modal-title" id="name-modal-title">Choose a display name</h2>
@@ -219,6 +225,27 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn--primary btn--full" id="js-name-confirm">Enter Space →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="js-media-options-modal" role="dialog" aria-modal="true" aria-labelledby="media-options-title" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="media-options-title">Media viewing options</h2>
+        <p class="modal-desc" id="js-media-file-summary">Media will be hidden until opened.</p>
+      </div>
+      <div class="modal-body media-options-body">
+        <label class="media-option-label" for="js-media-view-duration">View mode</label>
+        <select class="input" id="js-media-view-duration">
+          <option value="1">View once</option>
+          <option value="2">View twice</option>
+        </select>
+        <p class="media-security-note">Each person in the room gets their own views. Videos and audio can finish playing before the view closes.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn--secondary" id="js-media-cancel">Cancel</button>
+        <button class="btn btn--primary" id="js-media-send">Send media</button>
       </div>
     </div>
   </div>

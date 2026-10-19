@@ -10,7 +10,7 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;   // 10MB
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;   // 50MB
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;   // 10MB
 const MAX_VOICE_SECONDS = 120;               // 2 minutes
-const EMOJI_REACTIONS = ['👍','❤️','😂','😮','😢','🔥','👏','🎉'];
+const EMOJI_REACTIONS = ['👍','❤️','😂','👀','😮','🍑','😢','🔥','👏','🎉','💦','😭','😉','🥵',];
 
 // ─── DOM Refs ──────────────────────────────────────────────────────────────
 const dom = {
@@ -53,6 +53,11 @@ const dom = {
   // Input
   attachBtn: document.getElementById('js-attach-btn'),
   fileInput: document.getElementById('js-file-input'),
+  mediaOptionsModal: document.getElementById('js-media-options-modal'),
+  mediaFileSummary: document.getElementById('js-media-file-summary'),
+  mediaViewDuration: document.getElementById('js-media-view-duration'),
+  mediaCancel: document.getElementById('js-media-cancel'),
+  mediaSend: document.getElementById('js-media-send'),
   micBtn: document.getElementById('js-mic-btn'),
   messageInput: document.getElementById('js-message-input'),
   sendBtn: document.getElementById('js-send-btn'),
@@ -66,6 +71,7 @@ const dom = {
   nameInput: document.getElementById('js-name-input'),
   nameHint: document.getElementById('js-name-hint'),
   nameConfirm: document.getElementById('js-name-confirm'),
+  nameCancel: document.getElementById('js-name-cancel'),
 
   // Lightbox
   lightbox: document.getElementById('js-lightbox'),
@@ -89,7 +95,13 @@ const state = {
   typingTimeout: null,
   isTyping: false,
   msgCount: 0,
+  protectedMedia: new Map(),
+  activeMediaViewer: null,
+  pendingMediaEntry: null,
 };
+
+let pendingMediaFile = null;
+let pendingMediaDuration = null;
 
 // ─── Voice Recorder State ──────────────────────────────────────────────────
 const recorder = {
@@ -174,6 +186,7 @@ function getDisplayName() {
 
 // ─── Socket Setup ──────────────────────────────────────────────────────────
 const socket = io({ transports: ['websocket', 'polling'] });
+let pageIsLeaving = false;
 
 socket.on('connect', () => {
   const roomId = getRoomIdFromPath();
@@ -191,6 +204,7 @@ socket.on('connect', () => {
 });
 
 socket.on('disconnect', () => {
+  if (pageIsLeaving) return;
   showToast('Connection lost. Reconnecting...', 'error');
 });
 
@@ -200,6 +214,11 @@ socket.on('connect_error', () => {
 
 socket.on('error', ({ message }) => {
   showToast(message, 'error');
+  if (message === 'Space not found.') {
+    dom.loadingStatus.textContent = 'Space does not exist. Returning home...';
+    showToast('Space does not exist. Returning home...', 'error', 1500);
+    setTimeout(() => window.location.replace('/'), 1200);
+  }
 });
 
 // ─── Room events ───────────────────────────────────────────────────────────
@@ -208,7 +227,12 @@ socket.on('room-history', ({ history, users, myId }) => {
   updateUserList(users);
 
   // Render history
-  history.forEach(msg => renderMessage(msg));
+  history.forEach((msg) => {
+    renderMessage(msg);
+    msg.reactions?.forEach(({ emoji, users }) => {
+      users.forEach(({ id }) => addReactionToMessage(msg.id, emoji, id));
+    });
+  });
 
   // Show UI
   dom.loading.style.display = 'none';
@@ -238,6 +262,22 @@ socket.on('message', (msg) => {
   scrollToBottom(true);
 });
 
+socket.on('media-content', (payload) => revealProtectedMedia(payload));
+socket.on('media-expired', ({ msgId }) => expireProtectedMedia(msgId));
+socket.on('message-expired', ({ msgId }) => removeExpiredMessage(msgId));
+socket.on('media-unavailable', ({ msgId, requestId, reason }) => {
+  const entry = state.protectedMedia.get(msgId);
+  if (!entry || entry.requestId !== requestId) return;
+  entry.requestPending = false;
+  if (state.pendingMediaEntry === entry) state.pendingMediaEntry = null;
+  if (reason === 'not-eligible') {
+    entry.canViewMedia = false;
+  } else if (reason === 'views-used') {
+    entry.remainingViews = 0;
+  }
+  updateMediaTag(entry);
+});
+
 socket.on('user-typing', ({ userId, name }) => {
   state.typingUsers.set(userId, name);
   renderTypingIndicator();
@@ -248,8 +288,8 @@ socket.on('user-stop-typing', ({ userId }) => {
   renderTypingIndicator();
 });
 
-socket.on('reaction', ({ msgId, emoji, userId, userName }) => {
-  addReactionToMessage(msgId, emoji, userId);
+socket.on('reaction', ({ msgId, emoji, userId, previousEmoji }) => {
+  addReactionToMessage(msgId, emoji, userId, previousEmoji);
 });
 
 // ─── Join Room ─────────────────────────────────────────────────────────────
@@ -304,6 +344,7 @@ function renderMessage(msg) {
   const wrapper = document.createElement('div');
   wrapper.className = 'msg-group';
   wrapper.dataset.msgId = msg.id;
+  wrapper.id = msg.id;
 
   const msgWrapper = document.createElement('div');
   msgWrapper.className = `msg-wrapper${isOwn ? ' msg-wrapper--own' : ''}`;
@@ -359,26 +400,56 @@ function renderMessage(msg) {
     showEmojiPicker(msg.id, e);
   });
 
-  // Right-click / long-press to reply
-  bubble.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    setReply(msg);
-  });
-
   const timeEl = document.createElement('div');
   timeEl.className = 'msg-time';
   timeEl.textContent = formatTime(msg.timestamp);
+
+  const reactionButton = document.createElement('button');
+  reactionButton.className = 'msg-reaction-action';
+  reactionButton.type = 'button';
+  reactionButton.title = 'Add reaction';
+  reactionButton.setAttribute('aria-label', 'Add reaction');
+  reactionButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>';
+  reactionButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    showEmojiPicker(msg.id, event);
+  });
+
+  const replyButton = document.createElement('button');
+  replyButton.className = 'msg-reply-action';
+  replyButton.type = 'button';
+  replyButton.title = 'Reply';
+  replyButton.setAttribute('aria-label', 'Reply to message');
+  replyButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 15-5-5 5-5"/><path d="M4 10h9a5 5 0 0 1 5 5v1"/></svg>';
+  replyButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setReply(msg);
+  });
+
+  const contentRow = document.createElement('div');
+  contentRow.className = 'msg-content-row';
+  const contentActions = document.createElement('div');
+  contentActions.className = 'msg-content-actions';
+  contentActions.append(reactionButton, replyButton);
+  contentRow.append(bubble, contentActions);
+
+  const messageMeta = document.createElement('div');
+  messageMeta.className = 'msg-meta';
+  messageMeta.append(timeEl);
 
   const reactionsEl = document.createElement('div');
   reactionsEl.className = 'msg-reactions';
   reactionsEl.dataset.msgId = msg.id;
 
-  body.append(bubble, timeEl, reactionsEl);
+  body.append(contentRow, messageMeta, reactionsEl);
   msgWrapper.appendChild(body);
   wrapper.appendChild(msgWrapper);
   dom.messages.appendChild(wrapper);
 
   state.messages.set(msg.id, wrapper);
+  if (window.location.hash === `#${msg.id}`) {
+    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 
 function renderSystemMessage(msg) {
@@ -399,22 +470,167 @@ function renderMediaContent(bubble, msg) {
   bubble.style.background = 'transparent';
   bubble.style.border = 'none';
 
-  if (msg.data === '[media-ref]') {
-    // This was a history placeholder; skip rendering
+  if (msg.expired || msg.data === '[media-ref]') {
     const placeholder = document.createElement('div');
-    placeholder.textContent = '[Media no longer available]';
+    placeholder.textContent = msg.expired ? 'Media expired' : '[Media no longer available]';
     placeholder.style.cssText = 'font-size:0.78rem;color:var(--text-muted);padding:8px 12px;';
     bubble.appendChild(placeholder);
     return;
   }
 
-  if (msg.mediaType === 'image') {
-    renderImage(bubble, msg);
-  } else if (msg.mediaType === 'video') {
-    renderVideo(bubble, msg);
-  } else if (msg.mediaType === 'audio') {
-    renderVoiceNote(bubble, msg);
+  renderProtectedMedia(bubble, msg);
+}
+
+function renderProtectedMedia(bubble, msg) {
+  const wrapper = document.createElement('div');
+  const isSender = msg.sender?.id === state.myId;
+  const restricted = Number.isInteger(msg.viewLimit);
+  wrapper.className = `msg-media protected-media${restricted ? ' protected-media--restricted' : ''}`;
+
+  const trigger = document.createElement('button');
+  trigger.className = 'protected-media-trigger';
+  trigger.type = 'button';
+  const preview = document.createElement('span');
+  preview.className = 'protected-media-preview';
+  if (msg.previewData) {
+    const image = document.createElement('img');
+    image.src = `data:image/jpeg;base64,${msg.previewData}`;
+    image.alt = '';
+    image.draggable = false;
+    preview.appendChild(image);
+  } else {
+    preview.textContent = msg.mediaType === 'video' ? '▶' : msg.mediaType === 'audio' ? '♫' : '▧';
   }
+
+  const label = document.createElement('span');
+  label.className = 'protected-media-label';
+  label.textContent = getMediaTypeLabel(msg.mediaType);
+  trigger.append(preview, label);
+
+  const status = document.createElement('div');
+  status.className = 'protected-media-status';
+  const canViewMedia = msg.canViewMedia !== false;
+  const remainingViews = msg.remainingViews ?? msg.viewLimit;
+  wrapper.append(trigger, status);
+  bubble.appendChild(wrapper);
+
+  const entry = {
+    wrapper,
+    trigger,
+    preview,
+    label,
+    status,
+    message: msg,
+    isSender,
+    restricted,
+    canViewMedia,
+    remainingViews,
+    requestPending: false,
+    requestId: null,
+    activeView: false,
+    expired: false,
+    objectUrl: null,
+  };
+  trigger.addEventListener('click', () => requestProtectedMedia(entry));
+  trigger.addEventListener('contextmenu', preventMediaInteraction);
+  trigger.addEventListener('dblclick', preventMediaInteraction);
+  updateMediaTag(entry);
+  state.protectedMedia.set(msg.id, entry);
+}
+
+function getMediaTypeLabel(mediaType) {
+  if (mediaType === 'video') return 'Video';
+  if (mediaType === 'audio') return 'Voice message';
+  return 'Photo';
+}
+
+function updateMediaTag(entry) {
+  const typeLabel = getMediaTypeLabel(entry.message.mediaType);
+  entry.trigger.disabled = entry.expired || (!entry.isSender && (
+    !entry.canViewMedia || (entry.restricted && entry.remainingViews === 0)
+  ));
+
+  if (entry.expired) {
+    entry.label.textContent = `${typeLabel} · Expired`;
+    entry.status.hidden = true;
+  } else if (!entry.canViewMedia) {
+    entry.label.textContent = typeLabel;
+    entry.status.textContent = 'You were not in the room when this was sent';
+    entry.status.hidden = false;
+  } else if (entry.restricted && !entry.isSender) {
+    entry.label.textContent = typeLabel;
+    entry.status.textContent = entry.remainingViews === 0
+      ? 'You have used your views'
+      : `${entry.remainingViews} ${entry.remainingViews === 1 ? 'view' : 'views'} remaining`;
+    entry.status.hidden = false;
+  } else if (entry.restricted && entry.isSender) {
+    entry.label.textContent = typeLabel;
+    entry.status.textContent = `Each recipient gets ${entry.message.viewLimit} ${entry.message.viewLimit === 1 ? 'view' : 'views'}`;
+    entry.status.hidden = false;
+  } else {
+    entry.label.textContent = typeLabel;
+    entry.status.hidden = true;
+  }
+}
+
+function requestProtectedMedia(entry) {
+  if (entry.requestPending || entry.expired || state.activeMediaViewer || state.pendingMediaEntry) return;
+  if (!entry.isSender && (!entry.canViewMedia || (entry.restricted && entry.remainingViews === 0))) return;
+  entry.requestPending = true;
+  entry.requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  state.pendingMediaEntry = entry;
+  entry.status.textContent = 'Loading media...';
+  entry.status.hidden = false;
+  socket.emit('request-media', { msgId: entry.message.id, requestId: entry.requestId });
+}
+
+function revealProtectedMedia({ msgId, requestId, data, mimeType, senderPreview, remainingViews }) {
+  const entry = state.protectedMedia.get(msgId);
+  if (!entry || entry.requestId !== requestId) return;
+
+  entry.requestPending = false;
+  state.pendingMediaEntry = null;
+  if (entry.restricted && !senderPreview) {
+    entry.remainingViews = remainingViews;
+    entry.activeView = true;
+  }
+  updateMediaTag(entry);
+  entry.objectUrl = createBlobUrl(data, mimeType);
+  openLightbox(entry.message.mediaType, entry.objectUrl, entry);
+}
+
+function preventMediaInteraction(event) {
+  event.preventDefault();
+}
+
+function expireProtectedMedia(msgId) {
+  const entry = state.protectedMedia.get(msgId);
+  if (!entry) return;
+  entry.expired = true;
+  entry.message.expired = true;
+  if (state.activeMediaViewer?.entry === entry) closeLightbox({ finishView: false });
+  updateMediaTag(entry);
+}
+
+function removeExpiredMessage(msgId) {
+  const messageElement = state.messages.get(msgId);
+  if (!messageElement) return;
+
+  const mediaEntry = state.protectedMedia.get(msgId);
+  if (mediaEntry) {
+    if (state.activeMediaViewer?.entry === mediaEntry) {
+      closeLightbox({ finishView: false });
+    } else if (mediaEntry.objectUrl) {
+      URL.revokeObjectURL(mediaEntry.objectUrl);
+      blobUrls.delete(mediaEntry.objectUrl);
+    }
+    if (state.pendingMediaEntry === mediaEntry) state.pendingMediaEntry = null;
+    state.protectedMedia.delete(msgId);
+  }
+
+  if (state.replyTo?.id === msgId) clearReply();
+  messageElement.remove();
+  state.messages.delete(msgId);
 }
 
 function base64ToBlob(base64, mimeType) {
@@ -432,130 +648,55 @@ function createBlobUrl(base64, mimeType) {
   return url;
 }
 
-function renderImage(bubble, msg) {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'msg-media';
-
-  const url = createBlobUrl(msg.data, msg.mimeType);
-  const img = document.createElement('img');
-  img.className = 'media-img';
-  img.src = url;
-  img.alt = sanitize(msg.fileName || 'Image');
-  img.loading = 'lazy';
-  img.addEventListener('click', () => openLightbox('image', url));
-
-  const label = document.createElement('div');
-  label.className = 'media-size-label';
-  label.textContent = sanitize(msg.fileName || 'image');
-
-  wrapper.append(img, label);
-  bubble.appendChild(wrapper);
-}
-
-function renderVideo(bubble, msg) {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'msg-media';
-
-  const url = createBlobUrl(msg.data, msg.mimeType);
-  const video = document.createElement('video');
-  video.className = 'media-video';
-  video.src = url;
-  video.controls = true;
-  video.preload = 'metadata';
-  video.addEventListener('dblclick', () => openLightbox('video', url));
-
-  const label = document.createElement('div');
-  label.className = 'media-size-label';
-  label.textContent = `${sanitize(msg.fileName || 'video')} — double-click for fullscreen`;
-
-  wrapper.append(video, label);
-  bubble.appendChild(wrapper);
-}
-
-function renderVoiceNote(bubble, msg) {
-  const url = createBlobUrl(msg.data, msg.mimeType);
-  const audioEl = new Audio(url);
-
-  const player = document.createElement('div');
-  player.className = 'voice-note-player';
-
-  const playBtn = document.createElement('button');
-  playBtn.className = 'voice-play-btn';
-  playBtn.innerHTML = '▶';
-  playBtn.title = 'Play voice note';
-
-  let isPlaying = false;
-  playBtn.addEventListener('click', () => {
-    if (isPlaying) {
-      audioEl.pause();
-    } else {
-      audioEl.play();
-    }
-  });
-
-  audioEl.addEventListener('play', () => { isPlaying = true; playBtn.innerHTML = '⏸'; });
-  audioEl.addEventListener('pause', () => { isPlaying = false; playBtn.innerHTML = '▶'; });
-  audioEl.addEventListener('ended', () => { isPlaying = false; playBtn.innerHTML = '▶'; fillEl.style.width = '0%'; });
-
-  const waveContainer = document.createElement('div');
-  waveContainer.className = 'voice-waveform-container';
-
-  const progressBar = document.createElement('div');
-  progressBar.className = 'voice-progress';
-  const fillEl = document.createElement('div');
-  fillEl.className = 'voice-progress-fill';
-  progressBar.appendChild(fillEl);
-
-  progressBar.addEventListener('click', (e) => {
-    const rect = progressBar.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    if (audioEl.duration) audioEl.currentTime = ratio * audioEl.duration;
-  });
-
-  audioEl.addEventListener('timeupdate', () => {
-    if (audioEl.duration) {
-      fillEl.style.width = `${(audioEl.currentTime / audioEl.duration) * 100}%`;
-      durationEl.textContent = formatDuration(audioEl.currentTime);
-    }
-  });
-
-  const durationEl = document.createElement('div');
-  durationEl.className = 'voice-duration';
-  durationEl.textContent = msg.duration ? formatDuration(msg.duration) : '—';
-
-  audioEl.addEventListener('loadedmetadata', () => {
-    if (audioEl.duration && isFinite(audioEl.duration)) {
-      durationEl.textContent = formatDuration(audioEl.duration);
-    }
-  });
-
-  waveContainer.append(progressBar, durationEl);
-  player.append(playBtn, waveContainer);
-  bubble.appendChild(player);
-}
-
 // ─── Lightbox ──────────────────────────────────────────────────────────────
-function openLightbox(type, url) {
+function openLightbox(type, url, entry) {
   dom.lightboxMedia.innerHTML = '';
   let el;
   if (type === 'image') {
     el = document.createElement('img');
     el.src = url;
     el.alt = 'Full size image';
-  } else {
+  } else if (type === 'video') {
     el = document.createElement('video');
     el.src = url;
     el.controls = true;
-    el.autoplay = true;
+    el.setAttribute('controlsList', 'nodownload noremoteplayback');
+    el.disablePictureInPicture = true;
+    el.addEventListener('ended', () => closeLightbox(), { once: true });
+  } else {
+    el = document.createElement('audio');
+    el.src = url;
+    el.controls = true;
+    el.addEventListener('ended', () => closeLightbox(), { once: true });
   }
+  el.addEventListener('contextmenu', preventMediaInteraction);
+  el.addEventListener('dblclick', preventMediaInteraction);
+  el.addEventListener('dragstart', preventMediaInteraction);
+  el.draggable = false;
   dom.lightboxMedia.appendChild(el);
   dom.lightbox.removeAttribute('hidden');
   document.body.style.overflow = 'hidden';
+  const timeoutId = type === 'image' ? setTimeout(() => closeLightbox(), 5000) : null;
+  state.activeMediaViewer = { entry, element: el, url, timeoutId };
+  if (type !== 'image') el.play().catch(() => {});
 }
 
-function closeLightbox() {
-  const video = dom.lightboxMedia.querySelector('video');
-  if (video) video.pause();
+function closeLightbox({ finishView = true } = {}) {
+  const viewer = state.activeMediaViewer;
+  if (!viewer) return;
+  clearTimeout(viewer.timeoutId);
+  viewer.element.pause?.();
+  viewer.element.removeAttribute('src');
+  viewer.element.load?.();
+  if (viewer.entry.activeView) {
+    if (finishView) socket.emit('finish-media-view', { msgId: viewer.entry.message.id });
+    viewer.entry.activeView = false;
+    updateMediaTag(viewer.entry);
+  }
+  URL.revokeObjectURL(viewer.url);
+  blobUrls.delete(viewer.url);
+  viewer.entry.objectUrl = null;
+  state.activeMediaViewer = null;
   dom.lightboxMedia.innerHTML = '';
   dom.lightbox.setAttribute('hidden', '');
   document.body.style.overflow = '';
@@ -623,11 +764,25 @@ function closeEmojiPicker() {
   }
 }
 
-function addReactionToMessage(msgId, emoji, userId) {
+function addReactionToMessage(msgId, emoji, userId, previousEmoji = null) {
   const msgEl = state.messages.get(msgId);
   if (!msgEl) return;
   const reactionsEl = msgEl.querySelector(`.msg-reactions[data-msg-id="${msgId}"]`);
   if (!reactionsEl) return;
+
+  if (previousEmoji) {
+    const previousChip = reactionsEl.querySelector(`[data-emoji="${CSS.escape(previousEmoji)}"]`);
+    if (previousChip) {
+      const previousUsers = JSON.parse(previousChip.dataset.users).filter((id) => id !== userId);
+      if (previousUsers.length === 0) {
+        previousChip.remove();
+      } else {
+        previousChip.dataset.users = JSON.stringify(previousUsers);
+        previousChip.querySelector('.reaction-count').textContent = previousUsers.length;
+        if (userId === state.myId) previousChip.classList.remove('reaction-chip--mine');
+      }
+    }
+  }
 
   // Find or create chip for this emoji
   let chip = reactionsEl.querySelector(`[data-emoji="${CSS.escape(emoji)}"]`);
@@ -636,7 +791,7 @@ function addReactionToMessage(msgId, emoji, userId) {
     chip.className = 'reaction-chip';
     chip.dataset.emoji = emoji;
     chip.dataset.users = JSON.stringify([]);
-    chip.innerHTML = `<span>${emoji}</span> <span class="reaction-count">1</span>`;
+    chip.innerHTML = `<span>${emoji}</span> <span class="reaction-count">0</span>`;
     reactionsEl.appendChild(chip);
   }
 
@@ -739,6 +894,22 @@ dom.fileInput.addEventListener('change', (e) => {
   if (e.target.files[0]) handleFile(e.target.files[0]);
   dom.fileInput.value = '';
 });
+dom.mediaCancel.addEventListener('click', closeMediaOptions);
+dom.mediaSend.addEventListener('click', sendPendingMedia);
+
+function closeMediaOptions() {
+  pendingMediaFile = null;
+  pendingMediaDuration = null;
+  dom.mediaOptionsModal.setAttribute('hidden', '');
+}
+
+function openMediaOptions(file, duration = null) {
+  pendingMediaFile = file;
+  pendingMediaDuration = duration;
+  const type = file.type.startsWith('image/') ? 'Photo' : file.type.startsWith('video/') ? 'Video' : 'Audio';
+  dom.mediaFileSummary.textContent = `${type} · ${formatBytes(file.size)}. Hidden until opened.`;
+  dom.mediaOptionsModal.removeAttribute('hidden');
+}
 
 function handleFile(file) {
   const { type, size, name } = file;
@@ -765,30 +936,55 @@ function handleFile(file) {
     return;
   }
 
-  // Show upload progress
-  const progressId = `upload-${Date.now()}`;
-  const progressEl = renderUploadProgress(name, progressId);
+  openMediaOptions(file);
+}
 
+async function makeBlurPreview(file) {
+  if (!file.type.startsWith('image/')) return null;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 72 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return canvas.toDataURL('image/jpeg', 0.25).split(',')[1];
+  } catch (error) {
+    return null;
+  }
+}
+
+async function sendPendingMedia() {
+  const file = pendingMediaFile;
+  if (!file) return;
+
+  const viewLimit = Number(dom.mediaViewDuration.value);
+  const mediaType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'audio';
+  const duration = pendingMediaDuration;
+  closeMediaOptions();
+
+  const progressId = `upload-${Date.now()}`;
+  const progressEl = renderUploadProgress(`Sending ${mediaType}`, progressId);
+  const previewData = await makeBlurPreview(file);
   const reader = new FileReader();
-  reader.onprogress = (e) => {
-    if (e.lengthComputable) {
-      const pct = Math.round((e.loaded / e.total) * 100);
-      updateUploadProgress(progressId, pct);
-    }
+  reader.onprogress = (event) => {
+    if (event.lengthComputable) updateUploadProgress(progressId, Math.round((event.loaded / event.total) * 100));
   };
   reader.onload = () => {
     updateUploadProgress(progressId, 100);
-    const base64 = reader.result.split(',')[1];
     socket.emit('send-media', {
-      mediaType: isImage ? 'image' : isVideo ? 'video' : 'audio',
-      mimeType: type,
-      data: base64,
-      fileName: name,
+      mediaType,
+      mimeType: file.type || 'application/octet-stream',
+      data: reader.result.split(',')[1],
+      previewData,
+      viewLimit,
+      duration,
     });
     setTimeout(() => progressEl?.remove(), 800);
   };
   reader.onerror = () => {
-    showToast('Failed to read file.', 'error');
+    showToast('Failed to read media.', 'error');
     progressEl?.remove();
   };
   reader.readAsDataURL(file);
@@ -947,18 +1143,8 @@ function cleanupRecorder() {
 }
 
 async function sendVoiceNote(blob, mimeType, duration) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const base64 = reader.result.split(',')[1];
-    socket.emit('send-media', {
-      mediaType: 'audio',
-      mimeType,
-      data: base64,
-      fileName: `voice-note-${Date.now()}.webm`,
-      duration,
-    });
-  };
-  reader.readAsDataURL(blob);
+  if (!blob.type) blob = new Blob([blob], { type: mimeType });
+  openMediaOptions(blob, duration);
 }
 
 dom.recStop.addEventListener('click', stopRecording);
@@ -1001,7 +1187,7 @@ dom.headerCopyLink?.addEventListener('click', copyRoomLink);
 dom.leaveBtn?.addEventListener('click', () => {
   blobUrls.forEach(url => URL.revokeObjectURL(url));
   blobUrls.clear();
-  window.location.href = '/';
+  window.location.replace('/');
 });
 
 // ─── Name Modal ────────────────────────────────────────────────────────────
@@ -1010,6 +1196,12 @@ function showNameModal() {
   dom.nameModal.removeAttribute('hidden');
   dom.nameInput.focus();
 }
+
+dom.nameCancel.addEventListener('click', () => {
+  pageIsLeaving = true;
+  socket.disconnect();
+  window.location.replace('/');
+});
 
 dom.nameConfirm.addEventListener('click', () => {
   const name = dom.nameInput.value.trim().replace(/[^a-zA-Z0-9_\- .]/g, '').slice(0, 30);
@@ -1029,11 +1221,23 @@ dom.nameInput.addEventListener('keydown', (e) => {
 });
 
 // ─── Cleanup on unload ────────────────────────────────────────────────────
-window.addEventListener('beforeunload', () => {
+function cleanupPageResources() {
   blobUrls.forEach(url => URL.revokeObjectURL(url));
   blobUrls.clear();
   cancelRecording();
+}
+
+window.addEventListener('pagehide', () => {
+  pageIsLeaving = true;
+  socket.disconnect();
+  cleanupPageResources();
 });
+
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) window.location.reload();
+});
+
+window.addEventListener('beforeunload', cleanupPageResources);
 
 // ─── Init ──────────────────────────────────────────────────────────────────
 const roomId = getRoomIdFromPath();

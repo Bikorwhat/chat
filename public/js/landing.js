@@ -87,7 +87,7 @@ createBtn.addEventListener('click', async () => {
 });
 
 // ── Join Space ────────────────────────────────────────────────────────────
-function attemptJoin() {
+async function attemptJoin() {
   const rawInput = roomInput.value;
   if (!rawInput.trim()) {
     joinHint.textContent = 'Please enter a Space ID or URL.';
@@ -100,8 +100,19 @@ function attemptJoin() {
     joinHint.textContent = 'Invalid Space ID format. Use letters, numbers, and hyphens.';
     return;
   }
-  joinHint.textContent = '';
-  openNameModal(roomId);
+  try {
+    const response = await fetch(`/api/room/${encodeURIComponent(roomId)}/exists`);
+    if (!response.ok) throw new Error('Server error');
+    const { exists } = await response.json();
+    if (!exists) {
+      joinHint.textContent = 'No space found with that ID.';
+      return;
+    }
+    joinHint.textContent = '';
+    openNameModal(roomId);
+  } catch (err) {
+    joinHint.textContent = 'Could not check that Space ID. Please try again.';
+  }
 }
 
 joinBtn.addEventListener('click', attemptJoin);
