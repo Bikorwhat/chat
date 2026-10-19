@@ -33,7 +33,6 @@ const dom = {
   headerSpaceId: document.getElementById('js-header-space-id'),
   headerUserCount: document.getElementById('js-header-user-count'),
   chatModeLabel: document.getElementById('js-chat-mode-label'),
-  headerCopyLink: document.getElementById('js-header-copy-link'),
   leaveBtn: document.getElementById('js-leave-btn'),
 
   // Messages
@@ -1181,10 +1180,12 @@ function copyRoomLink() {
 }
 
 dom.copyLink?.addEventListener('click', copyRoomLink);
-dom.headerCopyLink?.addEventListener('click', copyRoomLink);
 
 // ─── Leave ─────────────────────────────────────────────────────────────────
 dom.leaveBtn?.addEventListener('click', () => {
+  const confirmed = window.confirm('Are you sure you want to leave this space and return to the homepage?');
+  if (!confirmed) return;
+
   blobUrls.forEach(url => URL.revokeObjectURL(url));
   blobUrls.clear();
   window.location.replace('/');

@@ -10,6 +10,7 @@ const joinBtn = document.getElementById('js-join-btn');
 const roomInput = document.getElementById('js-room-input');
 const joinHint = document.getElementById('js-join-hint');
 const nameModal = document.getElementById('js-name-modal');
+const nameCancel = document.getElementById('js-name-cancel');
 const nameInput = document.getElementById('js-name-input');
 const nameHint = document.getElementById('js-name-hint');
 const modalConfirm = document.getElementById('js-modal-confirm');
@@ -121,6 +122,7 @@ roomInput.addEventListener('keydown', (e) => {
 });
 
 // ── Modal controls ────────────────────────────────────────────────────────
+nameCancel.addEventListener('click', closeNameModal);
 modalConfirm.addEventListener('click', proceedToRoom);
 
 nameInput.addEventListener('keydown', (e) => {

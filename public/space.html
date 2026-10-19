@@ -14,15 +14,15 @@
   <link rel="stylesheet" href="/css/chat.css" />
 </head>
 <body>
-  <!-- ── App Shell ── -->
   <div class="app-shell" id="js-app" hidden>
-
-    <!-- ── Sidebar ── -->
     <aside class="sidebar" id="js-sidebar">
       <div class="sidebar-header">
-        <a href="/" class="logo-small">
-          <span>chyatt</span>
-        </a>
+        <div class="logo-small"><span>chyatt</span></div>
+        <button class="btn-icon-only sidebar-close-btn" id="js-sidebar-close" type="button" aria-label="Back to chat" title="Back to chat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="m18 6-12 12M6 6l12 12" />
+          </svg>
+        </button>
       </div>
 
       <div class="space-info">
@@ -79,22 +79,23 @@
           </div>
         </div>
         <div class="chat-header-right">
-          <p class="space-retention-note">Messages are automatically deleted 2 minutes after sending.</p>
-          <button class="btn-header" id="js-header-copy-link" title="Copy room link">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-            </svg>
-            Share URL
-          </button>
-          <button class="btn-header btn-header--danger" id="js-leave-btn" title="Leave space">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-              <polyline points="16 17 21 12 16 7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
-            Leave
-          </button>
+          <p class="space-retention-note">
+            <span class="space-retention-label">Note:</span>
+            <span class="space-retention-text">
+              Messages are automatically deleted 2 minutes after sending.<br />
+              Screenshotting can still be done for view once/twice.
+            </span>
+          </p>
+          <div class="chat-header-actions">
+            <button class="btn-header btn-header--danger" id="js-leave-btn" title="Leave space" aria-label="Leave space">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              <span>Leave</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -162,7 +163,7 @@
           <textarea
             id="js-message-input"
             class="message-input"
-            placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+            placeholder="Type a message.."
             rows="1"
             maxlength="500"
             autocomplete="off"

@@ -134,6 +134,7 @@ html, body {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+.sidebar-header .sidebar-close-btn { display: none; }
 
 .logo-small {
   display: flex;
@@ -169,12 +170,20 @@ html, body {
   word-break: break-all;
 }
 
+
 .space-retention-note {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 4px;
+  align-items: start;
   margin: -3px 0 10px;
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   line-height: 1.4;
 }
+
+.space-retention-note .space-retention-label { display: block; }
+.space-retention-note .space-retention-text { min-width: 0; }
 
 .btn-copy {
   display: flex;
@@ -379,6 +388,7 @@ html, body {
   gap: 8px;
   flex-shrink: 0;
 }
+.chat-header-actions { display: flex; align-items: center; gap: 8px; }
 
 .btn-header {
   display: flex;
@@ -1337,10 +1347,26 @@ html, body {
   }
   .sidebar.open { transform: translateX(0); }
   .sidebar-open-btn { display: flex; }
+  .sidebar-header .sidebar-close-btn { display: flex; }
   .sidebar-toggle { display: flex; }
 
-  .chat-header { padding: 0 14px; }
+  .chat-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "left actions" "note note";
+    column-gap: 8px;
+    row-gap: 6px;
+    height: auto;
+    min-height: var(--header-height);
+    align-items: center;
+    padding: 10px 14px;
+  }
+  .chat-header-left { grid-area: left; min-width: 0; gap: 8px; }
+  .chat-header-right { display: contents; }
+  .chat-header-actions { grid-area: actions; justify-self: end; gap: 6px; }
+  .space-retention-note { grid-area: note; width: auto; min-width: 0; margin: 0 0 0 40px; overflow-wrap: anywhere; }
   .space-name-text { max-width: 160px; }
+  .chat-main, .messages-canvas { min-width: 0; }
   .msg-wrapper { max-width: 88%; }
   .btn-header span:not(svg) { display: none; }
   .btn-header { padding: 7px; }
@@ -1351,6 +1377,12 @@ html, body {
 
 @media (max-width: 480px) {
   .sidebar { width: 100%; }
+  .chat-header-actions { gap: 6px; }
+  .btn-header { width: auto; min-width: 36px; justify-content: center; padding: 7px 9px; white-space: nowrap; }
+  .btn-header span { display: none; }
+  .space-name-text { max-width: calc(100vw - 90px); }
+  .header-meta { flex-wrap: wrap; }
+  .input-field-wrap { min-width: 0; }
   .recorder-bar { flex-wrap: wrap; gap: 8px; }
   .recorder-waveform { display: none; }
 }

@@ -346,7 +346,12 @@
 
   <!-- Name Modal (shown before entering a room) -->
   <div class="modal-overlay" id="js-name-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
-    <div class="modal">
+    <div class="modal modal--name">
+      <button class="modal-close" id="js-name-cancel" type="button" aria-label="Cancel and close" title="Cancel">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="m18 6-12 12M6 6l12 12" />
+        </svg>
+      </button>
       <div class="modal-header">
         <div class="modal-icon">👤</div>
         <h2 class="modal-title" id="modal-title">What's your display name?</h2>
