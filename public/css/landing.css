@@ -88,6 +88,7 @@ body {
   font-weight: 700;
   font-size: 1.15rem;
   letter-spacing: -0.02em;
+  text-decoration: none;
 }
 
 .logo-icon { font-size: 1.3rem; }
