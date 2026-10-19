@@ -12,6 +12,7 @@ const rateLimit = require('express-rate-limit');
 const { customAlphabet } = require('nanoid');
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io = new Server(server, {
   maxHttpBufferSize: 55 * 1024 * 1024, // 55MB for chunked media
@@ -156,7 +157,7 @@ function sanitizeName(str) {
 // Per-socket rate limiting for messages
 const socketMsgCounts = new Map(); // socketId -> { count, resetAt }
 
-function checkSocketRate(socketId, limit = 20, windowMs = 10000) {
+function checkSocketRate(socketId, limit = 12, windowMs = 10000) {
   const now = Date.now();
   const entry = socketMsgCounts.get(socketId) || { count: 0, resetAt: now + windowMs };
   if (now > entry.resetAt) {
@@ -272,7 +273,7 @@ io.on('connection', (socket) => {
   // This keeps architecture simple; for production you'd want proper chunking.
   socket.on('send-media', ({ mediaType, mimeType, data, previewData, viewLimit, duration }) => {
     if (!currentRoom || !currentUser) return;
-    if (!checkSocketRate(socket.id, 5, 30000)) {
+    if (!checkSocketRate(socket.id, 4, 30000)) {
       return socket.emit('error', { message: 'Media rate limit hit. Please wait.' });
     }
 
