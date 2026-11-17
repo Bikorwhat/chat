@@ -423,7 +423,14 @@
     try {
       await Promise.all([...peers.values()].filter(p => p.video).map(p => p.video.sender.replaceTrack(null)));
       if (on) {
-        captured = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: el('call-facing').value }, width: { ideal: 640 }, height: { ideal: 480 } } });
+        const facing = el('call-facing').value;
+        const supportsFacing = navigator.mediaDevices.getSupportedConstraints().facingMode;
+        if (facing === 'environment' && !supportsFacing) throw new Error('This browser cannot select the back camera. Camera remains off.');
+        captured = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
+          // Back selection must never silently activate the front camera.
+          facingMode: facing === 'environment' ? { exact: facing } : { ideal: facing },
+          width: { ideal: 640 }, height: { ideal: 480 }
+        } });
         if (token !== generation || !active) { captured.getTracks().forEach(t => t.stop()); return; }
         const track = captured.getVideoTracks()[0];
         stream.addTrack(track);
@@ -432,7 +439,7 @@
       }
     } catch (error) {
       captured?.getTracks().forEach(t => { t.stop(); stream?.removeTrack(t); });
-      if (token === generation) failure(error);
+      if (token === generation) failure(error.name === 'OverconstrainedError' ? new Error('The requested camera is unavailable. Camera remains off.') : error);
     } finally {
       cameraBusy = false;
       el('call-camera').disabled = el('call-facing').disabled = false;

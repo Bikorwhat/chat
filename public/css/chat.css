@@ -57,6 +57,8 @@
 .call-videos { display: flex; gap: 10px; overflow-x: auto; }
 .call-tile { position: relative; flex: 0 0 200px; height: 135px; background: var(--bg-card); border-radius: 12px; overflow: hidden; }
 .call-tile video { width: 100%; height: 100%; object-fit: cover; }
+.msg-bubble-text a { color: #a78bfa; text-decoration: underline; overflow-wrap: anywhere; }
+#js-room-lock[hidden] { display: none; }
 .call-tile span { position: absolute; bottom: 8px; left: 8px; background: #000b; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
 .call-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .call-controls button, .call-controls select { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: 9px; font: inherit; font-size: 12px; cursor: pointer; }

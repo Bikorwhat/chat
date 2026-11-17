@@ -123,11 +123,30 @@ function sanitize(str) {
 
 // ─── Linkify (convert URLs in text to clickable links safely) ─────────────
 function linkifyText(text) {
-  const safe = sanitize(text);
-  return safe.replace(
-    /(https?:\/\/[^\s<>"']+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#8b5cf6;text-decoration:underline;">$1</a>'
-  );
+  const fragment = document.createDocumentFragment();
+  const value = String(text);
+  const pattern = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+  let cursor = 0;
+  for (const match of value.matchAll(pattern)) {
+    const raw = match[0].replace(/[.,!?;:]+$/, '');
+    let url = raw;
+    // Keep balanced parentheses in URLs, but exclude surrounding prose punctuation.
+    while (url.endsWith(')') && (url.match(/\)/g) || []).length > (url.match(/\(/g) || []).length) url = url.slice(0, -1);
+    fragment.append(document.createTextNode(value.slice(cursor, match.index)));
+    try {
+      const parsed = new URL(/^www\./i.test(url) ? `https://${url}` : url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Unsupported URL');
+      const anchor = document.createElement('a');
+      anchor.href = parsed.href;
+      anchor.textContent = url;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+      fragment.append(anchor);
+    } catch { fragment.append(document.createTextNode(url)); }
+    cursor = match.index + url.length;
+  }
+  fragment.append(document.createTextNode(value.slice(cursor)));
+  return fragment;
 }
 
 // ─── Format Timestamp ─────────────────────────────────────────────────────
@@ -213,11 +232,20 @@ socket.on('connect_error', () => {
 
 socket.on('error', ({ message }) => {
   showToast(message, 'error');
+  if (message.startsWith('This space is locked')) dom.loadingStatus.textContent = message;
   if (message === 'Space not found.') {
     dom.loadingStatus.textContent = 'Space does not exist. Returning home...';
     showToast('Space does not exist. Returning home...', 'error', 1500);
     setTimeout(() => window.location.replace('/'), 1200);
   }
+});
+
+socket.on('room-access', ({ locked, canManage }) => {
+  const button = document.getElementById('js-room-lock');
+  button.hidden = !canManage;
+  button.textContent = locked ? 'Unlock space' : 'Lock space';
+  button.setAttribute('aria-pressed', String(locked));
+  button.onclick = () => socket.emit('room-lock', { locked: !locked });
 });
 
 // ─── Room events ───────────────────────────────────────────────────────────
@@ -269,6 +297,7 @@ socket.on('media-unavailable', ({ msgId, requestId, reason }) => {
   if (!entry || entry.requestId !== requestId) return;
   entry.requestPending = false;
   if (state.pendingMediaEntry === entry) state.pendingMediaEntry = null;
+  if (reason === 'rate-limit') showToast('Too many media requests. Wait a moment and try again.', 'error');
   if (reason === 'not-eligible') {
     entry.canViewMedia = false;
   } else if (reason === 'views-used') {
@@ -312,7 +341,8 @@ function updateUserList(users) {
     const avatar = makeAvatar(u.name, u.color, 30);
     const nameSpan = document.createElement('span');
     nameSpan.className = 'user-item-name';
-    nameSpan.textContent = u.name;
+    nameSpan.textContent = `${u.name} · ${u.id.slice(0, 6)}`;
+    nameSpan.title = 'Temporary participant identifier; display names are not verified identities.';
     const online = document.createElement('span');
     online.className = 'user-item-online';
     online.title = 'Online';
@@ -363,7 +393,7 @@ function renderMessage(msg) {
     const nameEl = document.createElement('div');
     nameEl.className = 'msg-sender-name';
     nameEl.style.color = msg.sender.color;
-    nameEl.textContent = sanitize(msg.sender.name);
+    nameEl.textContent = msg.sender.name;
     body.appendChild(nameEl);
   }
 
@@ -387,7 +417,7 @@ function renderMessage(msg) {
   if (msg.type === 'text') {
     const textEl = document.createElement('div');
     textEl.className = 'msg-bubble-text';
-    textEl.innerHTML = linkifyText(msg.text);
+    textEl.append(linkifyText(msg.text));
     bubble.appendChild(textEl);
   } else if (msg.type === 'media') {
     renderMediaContent(bubble, msg);
@@ -457,7 +487,7 @@ function renderSystemMessage(msg) {
   div.dataset.msgId = msg.id;
   const span = document.createElement('span');
   span.className = 'msg-system-text';
-  span.textContent = msg.text; // server already sanitized
+  span.textContent = msg.text; // Text nodes keep server-provided text inert.
   div.appendChild(span);
   dom.messages.appendChild(div);
   state.messages.set(msg.id, div);
@@ -808,8 +838,8 @@ function addReactionToMessage(msgId, emoji, userId, previousEmoji = null) {
 function setReply(msg) {
   const previewText = msg.type === 'text' ? msg.text : `[${msg.mediaType}]`;
   state.replyTo = { id: msg.id, text: previewText, senderName: msg.sender?.name || 'Unknown' };
-  dom.replyName.textContent = sanitize(state.replyTo.senderName);
-  dom.replyText.textContent = sanitize(previewText.slice(0, 60));
+  dom.replyName.textContent = state.replyTo.senderName;
+  dom.replyText.textContent = previewText.slice(0, 60);
   dom.replyPreview.removeAttribute('hidden');
   dom.messageInput.focus();
 }

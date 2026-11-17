@@ -11,12 +11,13 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { customAlphabet } = require('nanoid');
 const rtcConfig = require('./lib/rtc-config');
+const { installGuard, base64Bytes } = require('./lib/socket-guard');
 
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io = new Server(server, {
-  maxHttpBufferSize: 55 * 1024 * 1024, // 55MB for chunked media
+  maxHttpBufferSize: 70 * 1024 * 1024, // 50MB video + base64 overhead and metadata
   cors: {
     origin: process.env.CLIENT_ORIGIN || '*',
     methods: ['GET', 'POST'],
@@ -81,6 +82,12 @@ function callDetails(room) {
 function publishCall(roomId) {
   const room = rooms.get(roomId);
   if (room) io.to(roomId).emit('call-state', { participants: [...room.callers], call: callDetails(room) });
+}
+
+function publishRoomAccess(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  for (const id of room.users.keys()) io.to(id).emit('room-access', { locked: Boolean(room.locked), canManage: room.owner === id });
 }
 
 function finishCall(roomId, reason) {
@@ -179,12 +186,6 @@ app.get('/space/:roomId', (req, res) => {
 function sanitizeText(str) {
   if (typeof str !== 'string') return '';
   return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;')
-    .replace(/\//g, '&#x2F;')
     .trim()
     .slice(0, 500); // hard cap on message length
 }
@@ -196,23 +197,17 @@ function sanitizeName(str) {
 
 // ─── Socket.io Logic ────────────────────────────────────────────────────────
 // Per-socket rate limiting for messages
-const socketMsgCounts = new Map(); // socketId -> { count, resetAt }
-
-function checkSocketRate(socketId, limit = 12, windowMs = 10000) {
-  const now = Date.now();
-  const entry = socketMsgCounts.get(socketId) || { count: 0, resetAt: now + windowMs };
-  if (now > entry.resetAt) {
-    entry.count = 0;
-    entry.resetAt = now + windowMs;
-  }
-  entry.count++;
-  socketMsgCounts.set(socketId, entry);
-  return entry.count <= limit;
-}
-
 io.on('connection', (socket) => {
+  installGuard(socket);
   let currentRoom = null;
   let currentUser = null;
+  let downloadBudget = { bytes: 0, reset: 0 };
+  socket.on('room-lock', ({ locked }) => {
+    const room = rooms.get(currentRoom);
+    if (!room || room.owner !== socket.id) return;
+    room.locked = locked === true;
+    publishRoomAccess(currentRoom);
+  });
   socket.on('call-config', (_, reply) => {
     if (typeof reply !== 'function') return;
     if (!rooms.get(currentRoom)?.users.has(socket.id)) return reply({ error: 'Join a space before calling.' });
@@ -297,6 +292,12 @@ io.on('connection', (socket) => {
     const room = rooms.get(safeRoom);
     if (!room) return socket.emit('error', { message: 'Space not found.' });
     if (currentRoom === safeRoom) return;
+    if (room.locked) return socket.emit('error', { message: 'This space is locked. Ask a participant to unlock it.' });
+    let uniqueName = safeName;
+    let suffix = 2;
+    while ([...room.users.values()].some(user => user.name.toLowerCase() === uniqueName.toLowerCase())) {
+      uniqueName = `${safeName.slice(0, 24)}_${suffix++}`;
+    }
     // Leave previous room if any
     if (currentRoom) {
       leaveRoom(socket, currentRoom);
@@ -309,13 +310,15 @@ io.on('connection', (socket) => {
 
     currentUser = {
       id: socket.id,
-      name: safeName,
+      name: uniqueName,
       color: COLORS[colorIndex],
       joinedAt: Date.now(),
     };
 
     room.users.set(socket.id, currentUser);
+    if (!room.owner) room.owner = socket.id;
     socket.join(safeRoom);
+    publishRoomAccess(safeRoom);
 
     // Send existing history to the new joiner
     cleanupExpiredMessages(Date.now(), safeRoom);
@@ -350,7 +353,7 @@ io.on('connection', (socket) => {
     // System join message
     const joinMsg = {
       type: 'system',
-      text: sanitizeText(`${safeName} joined the space`),
+      text: sanitizeText(`${uniqueName} joined the space`),
       timestamp: Date.now(),
       id: `sys-${Date.now()}-${Math.random()}`,
     };
@@ -363,9 +366,6 @@ io.on('connection', (socket) => {
   // ── Text Message ──────────────────────────────────────────────────────────
   socket.on('send-message', ({ text, replyTo }) => {
     if (!currentRoom || !currentUser) return;
-    if (!checkSocketRate(socket.id)) {
-      return socket.emit('error', { message: 'Slow down! You are sending messages too fast.' });
-    }
 
     const safeText = sanitizeText(text);
     if (!safeText) return;
@@ -376,7 +376,7 @@ io.on('connection', (socket) => {
       text: safeText,
       sender: { id: currentUser.id, name: currentUser.name, color: currentUser.color },
       timestamp: Date.now(),
-      replyTo: replyTo || null,
+      replyTo: typeof replyTo === 'string' && rooms.get(currentRoom)?.history.some(message => message.id === replyTo) ? replyTo : null,
     };
 
     addToHistory(currentRoom, msg);
@@ -388,9 +388,6 @@ io.on('connection', (socket) => {
   // This keeps architecture simple; for production you'd want proper chunking.
   socket.on('send-media', ({ mediaType, mimeType, data, previewData, viewLimit, duration }) => {
     if (!currentRoom || !currentUser) return;
-    if (!checkSocketRate(socket.id, 4, 30000)) {
-      return socket.emit('error', { message: 'Media rate limit hit. Please wait.' });
-    }
 
     // Validate mime types
     const allowed = ['image/', 'video/', 'audio/'];
@@ -399,12 +396,12 @@ io.on('connection', (socket) => {
       return socket.emit('error', { message: 'Invalid media type.' });
     }
 
-    if (typeof data !== 'string' || data.length === 0) {
+    if (base64Bytes(data) < 0 || (previewData && base64Bytes(previewData) < 0)) {
       return socket.emit('error', { message: 'Invalid media data.' });
     }
 
     // Validate decoded file size; storage quotas also include the base64 preview.
-    const approxBytes = data.length * 0.75;
+    const approxBytes = base64Bytes(data);
     const limits = { image: 10 * 1024 * 1024, video: 50 * 1024 * 1024, audio: 10 * 1024 * 1024 };
     const category = mimeType.startsWith('image') ? 'image' : mimeType.startsWith('video') ? 'video' : 'audio';
     if (approxBytes > limits[category]) {
@@ -466,6 +463,10 @@ io.on('connection', (socket) => {
     if (!media) return socket.emit('media-unavailable', { msgId, requestId });
 
     const isSender = currentUser.id === media.senderId;
+    if (Date.now() >= downloadBudget.reset) downloadBudget = { bytes: 0, reset: Date.now() + 30000 };
+    if (downloadBudget.bytes + media.sizeBytes > 160 * 1024 * 1024) {
+      return socket.emit('media-unavailable', { msgId, requestId, reason: 'rate-limit' });
+    }
     let remainingViews = null;
     if (!isSender && media.viewLimit !== null) {
       if (!media.recipientIds.has(socket.id)) {
@@ -483,6 +484,7 @@ io.on('connection', (socket) => {
       remainingViews = media.viewLimit - viewsUsed - 1;
     }
 
+    downloadBudget.bytes += media.sizeBytes;
     socket.emit('media-content', {
       msgId,
       requestId,
@@ -535,7 +537,6 @@ io.on('connection', (socket) => {
   // ── Disconnect ────────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
     if (currentRoom) leaveRoom(socket, currentRoom);
-    socketMsgCounts.delete(socket.id);
   });
 
   function leaveRoom(sock, roomId) {
@@ -545,7 +546,9 @@ io.on('connection', (socket) => {
     const user = room.users.get(sock.id);
     leaveCall(roomId, sock.id);
     room.users.delete(sock.id);
+    if (room.owner === sock.id) room.owner = room.users.keys().next().value;
     sock.leave(roomId);
+    publishRoomAccess(roomId);
 
     for (const [msgId, media] of room.media) {
       if (!media.recipientIds?.delete(sock.id)) continue;

@@ -1,6 +1,6 @@
 # ⚡ fchat — Ephemeral Real-Time Chat Platform
 
-> Zero-database · No accounts · End-to-end encrypted · Auto-destroyed
+> Zero-database · No accounts · Temporary server memory · Auto-destroyed
 
 A full-stack ephemeral chat application. Create a "Space" (room), share the link, and start chatting — all data lives **only in RAM** and vanishes when the room closes.
 
@@ -31,6 +31,14 @@ npm start      # production
 - Bounded RAM: unjoined spaces expire after 1 minute and each message after 2 minutes; limits of 250 spaces, 500 connections, and 256MB retained media per server process
 
 ## Calls
+
+Chat messages and shared media are temporarily readable by the server in RAM; they are not end-to-end encrypted. HTTPS protects transport when enabled on your host. View-once/twice restricts server retrieval, but cannot stop an authorized recipient from copying received media or taking screenshots. No message contents are written to application logs.
+
+The first participant can lock the space from the sidebar to block new joins and unlock it to admit others. Management transfers to another participant when the manager leaves. Existing participants remain connected. Duplicate display names receive a numeric suffix, and the participant list shows temporary identifiers. Names and identifiers do not verify real identities; keep room links private.
+
+HTTP/HTTPS links and `www.` links in chat open in a new browser tab using your browser settings. Web pages cannot force a particular browser app or override the operating system default. Plain text is rendered safely without interpreting HTML.
+
+Socket events validate payload types and sizes before handlers run, with separate event limits and an aggregate request limit per connection. Media retrieval has a per-connection byte budget. The 70 MB transport ceiling accommodates a 50 MB video encoded as base64; retained-media quotas still apply. These safeguards reduce abuse but are not a guarantee against denial-of-service attacks. Render changes require deploying the updated files; local edits do not update the hosted service automatically.
 
 Use the phone or video icon in the chat header to call everyone currently in that space. Participants see the caller's name with Accept and Decline controls; the caller sees a ringing status. Incoming calls do not access the microphone or camera until accepted. Calls time out after 30 seconds without an answer, and caller cancellation dismisses the incoming call. Only one call can run in a space at a time; participants can use either header icon to join an existing call. Ringtones depend on browser autoplay permissions and may require a click in the page first. Calls ring connected participants with the space open; there are no background push notifications.
 
