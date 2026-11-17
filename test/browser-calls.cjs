@@ -78,6 +78,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     for (const session of [a, b]) {
       await until(session, 'testPeers.some(p => p.connectionState === "connected")', 'WebRTC connected');
       await until(session, '(async () => { const stats = await testPeers[0].getStats(); return [...stats.values()].some(s => s.type === "inbound-rtp" && s.kind === "audio" && s.bytesReceived > 0); })()', 'audio packets received');
+      await until(session, 'Array.from(document.querySelectorAll("#js-call-videos audio")).some(a => !a.paused && a.currentTime > 0.2 && a.srcObject.getVideoTracks().length === 0)', 'audio playing with cameras off');
       assert.equal(await evaluate(session, 'testStreams.flatMap(s => s.getVideoTracks()).length'), 0, 'camera off by default');
     }
     console.log('PASS: two voice callers connected; audio received in both directions; cameras off.');
@@ -87,10 +88,10 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await click(a, 'call-mute');
     assert.equal(await evaluate(a, 'testStreams[0].getAudioTracks()[0].enabled'), true);
     await click(a, 'call-speaker');
-    assert.equal(await evaluate(a, 'document.querySelector("#js-call-videos .call-tile:not(#js-local-tile) video").muted'), true);
+    assert.equal(await evaluate(a, 'document.querySelector("#js-call-videos audio").muted'), true);
     await click(a, 'call-speaker');
     await evaluate(a, 'const volume = document.getElementById("js-call-volume"); volume.value = 35; volume.dispatchEvent(new Event("input"));');
-    assert.equal(await evaluate(a, 'document.querySelector("#js-call-videos .call-tile:not(#js-local-tile) video").volume'), 0.35);
+    assert.equal(await evaluate(a, 'document.querySelector("#js-call-videos audio").volume'), 0.35);
     console.log('PASS: microphone mute/unmute, speaker mute/unmute, volume.');
     await click(a, 'call-end');
     await until(b, 'document.getElementById("js-call-panel").hidden', 'remote hangup');
@@ -101,6 +102,9 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     for (const session of [a, b]) {
       await until(session, '!document.getElementById("js-call-panel").hidden && !document.getElementById("js-call-camera").hidden', 'video call join');
       assert.equal(await evaluate(session, 'document.getElementById("js-local-video").srcObject.getVideoTracks().length'), 0);
+      await until(session, 'Array.from(document.querySelectorAll("#js-call-videos audio")).some(a => !a.paused && a.currentTime > 0.2)', 'video-call audio playing before camera activation');
+    }
+    for (const session of [a, b]) {
       await click(session, 'call-camera');
       await until(session, 'document.getElementById("js-call-camera").getAttribute("aria-pressed") === "true"', 'enable camera');
     }
@@ -131,6 +135,12 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await until(a, '!document.getElementById("js-call-camera").disabled && document.getElementById("js-local-video").srcObject.getVideoTracks().some(t => t.readyState === "live")', 'camera switch');
     await click(a, 'call-camera');
     await until(a, 'document.getElementById("js-local-video").srcObject.getVideoTracks().length === 0', 'camera off');
+    await click(b, 'call-camera');
+    await until(b, 'document.getElementById("js-local-video").srcObject.getVideoTracks().length === 0', 'second camera off');
+    for (const session of [a, b]) {
+      await evaluate(session, 'window.audioTimeBefore = document.querySelector("#js-call-videos audio").currentTime');
+      await until(session, 'document.querySelector("#js-call-videos audio").currentTime > window.audioTimeBefore + 0.3 && !document.querySelector("#js-call-videos audio").paused', 'audio continues after both cameras switch off');
+    }
     console.log('PASS: camera switch request and camera off (synthetic camera; physical lens selection unverified).');
     for (const session of [a, b]) {
       await click(session, 'call-end');

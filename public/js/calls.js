@@ -156,6 +156,9 @@
     clearTimeout(peer.recoveryTimer);
     clearTimeout(peer.failureTimer);
     peer.pc.close();
+    peer.audio.pause();
+    peer.audio.srcObject = null;
+    peer.media.srcObject = null;
     peer.tile.remove();
   }
 
@@ -196,11 +199,16 @@
     const media = document.createElement('video');
     media.autoplay = true;
     media.playsInline = true;
-    media.muted = speakerMuted;
-    media.volume = Number(el('call-volume').value) / 100;
+    // Never combine audio with the reserved, initially muted video track:
+    // browsers can wait for video frames before playing a combined stream.
+    media.muted = true;
+    const audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.muted = speakerMuted;
+    audio.volume = Number(el('call-volume').value) / 100;
     const label = document.createElement('span');
     label.textContent = state.users.get(id)?.name || 'Participant';
-    tile.append(media, label);
+    tile.append(media, audio, label);
     el('call-videos').append(tile);
     pc.addTrack(stream.getAudioTracks()[0], stream);
     // Reserve a video sender even with the camera off, avoiding renegotiation.
@@ -208,15 +216,17 @@
     // Preallocating one there can leave the negotiated video receive-only.
     const video = initiator ? pc.addTransceiver('video', { direction: 'sendrecv', streams: [stream] }) : null;
     const track = stream.getVideoTracks()[0];
-    const peer = { pc, tile, media, label, video, retries: 0, candidates: [], ready: track && video ? video.sender.replaceTrack(track) : Promise.resolve() };
+    const peer = { pc, tile, media, audio, label, video, retries: 0, candidates: [], ready: track && video ? video.sender.replaceTrack(track) : Promise.resolve() };
     peers.set(id, peer);
     pc.onicecandidate = event => {
       if (event.candidate && active) socket.emit('call-signal', { to: id, candidate: event.candidate.toJSON(), callId });
     };
     pc.ontrack = event => {
-      if (!media.srcObject) media.srcObject = new MediaStream();
-      media.srcObject.addTrack(event.track);
-      play(media);
+      const target = event.track.kind === 'audio' ? audio : media;
+      if (!target.srcObject) target.srcObject = new MediaStream();
+      target.srcObject.addTrack(event.track);
+      play(target);
+      event.track.addEventListener('unmute', () => play(target));
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
@@ -446,9 +456,9 @@
     publishMedia();
   };
   function updateAudio() {
-    for (const { media } of peers.values()) {
-      media.muted = speakerMuted;
-      media.volume = Number(el('call-volume').value) / 100;
+    for (const { audio } of peers.values()) {
+      audio.muted = speakerMuted;
+      audio.volume = Number(el('call-volume').value) / 100;
     }
   }
   el('call-speaker').onclick = () => {
@@ -460,7 +470,7 @@
   el('call-volume').oninput = updateAudio;
   el('call-play').onclick = () => {
     el('call-play').hidden = true;
-    for (const { media } of peers.values()) play(media);
+    for (const { media, audio } of peers.values()) { play(audio); play(media); }
   };
   el('call-resume').onclick = async () => {
     if (!active || captureBusy) return;
@@ -530,7 +540,7 @@
   });
   document.addEventListener('visibilitychange', () => {
     if (!active || document.hidden) return;
-    for (const { media } of peers.values()) play(media);
+    for (const { media, audio } of peers.values()) { play(audio); play(media); }
     for (const [id, peer] of peers) if (['disconnected', 'failed'].includes(peer.pc.connectionState)) recoverPeer(id);
     publishMedia();
   });
