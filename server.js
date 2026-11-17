@@ -10,6 +10,7 @@ const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { customAlphabet } = require('nanoid');
+const rtcConfig = require('./lib/rtc-config');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -61,6 +62,7 @@ const MAX_ROOM_MEDIA_BYTES = 100 * 1024 * 1024;
 const MAX_TOTAL_MEDIA_BYTES = 256 * 1024 * 1024;
 const MAX_ROOMS = 250;
 const MAX_CONNECTIONS = 500;
+const CALL_COOLDOWN_MS = Math.max(1000, Number(process.env.CALL_COOLDOWN_MS) || 10000);
 const EMPTY_ROOM_TTL_MS = 60 * 1000;
 const MESSAGE_TTL_MS = 2 * 60 * 1000;
 const ROOM_CLEANUP_INTERVAL_MS = 1000;
@@ -69,9 +71,47 @@ const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 8);
 const ALLOWED_REACTIONS = new Set(['👍', '❤️', '😂', '👀', '😮', '🍑', '😢', '🔥', '👏', '🎉', '💦', '😭', '😉', '🥵']);
 let totalMediaBytes = 0;
 
+function callDetails(room) {
+  const call = room.call;
+  return call ? { id: call.id, callerId: call.callerId, callerName: call.callerName,
+    video: call.video, ringing: [...call.pending], connected: call.connected,
+    media: [...call.media].map(([id, media]) => ({ id, ...media })) } : null;
+}
+
+function publishCall(roomId) {
+  const room = rooms.get(roomId);
+  if (room) io.to(roomId).emit('call-state', { participants: [...room.callers], call: callDetails(room) });
+}
+
+function finishCall(roomId, reason) {
+  const room = rooms.get(roomId);
+  if (!room?.call) return;
+  const callId = room.call.id;
+  clearTimeout(room.call.timer);
+  room.call = null;
+  room.nextCallAt = Date.now() + CALL_COOLDOWN_MS;
+  room.callers.clear();
+  io.to(roomId).emit('call-ended', { callId, reason });
+  publishCall(roomId);
+}
+
+function leaveCall(roomId, userId) {
+  const room = rooms.get(roomId);
+  if (!room?.call) return;
+  room.call.pending.delete(userId);
+  const wasParticipant = room.callers.delete(userId);
+  room.call.media.delete(userId);
+  if (!room.callers.size || (wasParticipant && room.call.connected && room.callers.size < 2)) {
+    finishCall(roomId, 'Call ended');
+  } else if (!room.call.connected && !room.call.pending.size) {
+    finishCall(roomId, 'Nobody available');
+  } else publishCall(roomId);
+}
+
 function destroyRoom(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
+  clearTimeout(room.call?.timer);
   totalMediaBytes -= room.mediaBytes;
   rooms.delete(roomId);
 }
@@ -117,6 +157,7 @@ app.get('/api/create-room', (req, res) => {
     media: new Map(),
     mediaBytes: 0,
     reactions: new Map(),
+    callers: new Set(),
     createdAt: Date.now(),
   });
   res.json({ roomId });
@@ -172,6 +213,79 @@ function checkSocketRate(socketId, limit = 12, windowMs = 10000) {
 io.on('connection', (socket) => {
   let currentRoom = null;
   let currentUser = null;
+  socket.on('call-config', (_, reply) => {
+    if (typeof reply !== 'function') return;
+    if (!rooms.get(currentRoom)?.users.has(socket.id)) return reply({ error: 'Join a space before calling.' });
+    try { reply(rtcConfig(socket.id)); } catch (error) { reply({ error: error.message }); }
+  });
+  socket.on('call-media', (payload) => {
+    const room = rooms.get(currentRoom);
+    if (!payload || !room?.callers.has(socket.id) || payload.callId !== room.call?.id) return;
+    const previous = room.call.media.get(socket.id);
+    if (previous && Date.now() - previous.updatedAt < 150) return;
+    room.call.media.set(socket.id, { muted: payload.muted === true, camera: payload.camera === true, updatedAt: Date.now() });
+    publishCall(currentRoom);
+  });
+
+  socket.on('call-join', (payload, reply) => {
+    const room = rooms.get(currentRoom);
+    if (!room || !currentUser || typeof reply !== 'function') return;
+    const { callId, video } = payload || {};
+    if (callId && callId !== room.call?.id) return reply({ error: 'This call has ended.' });
+    if (!callId && room.call) return reply({ error: 'A call is already in progress. Join the existing call.' });
+    if (!callId && room.users.size < 2) return reply({ error: 'Nobody else is in this space to call.' });
+    if (!callId && Date.now() < (room.nextCallAt || 0)) {
+      return reply({ error: `Please wait ${Math.ceil((room.nextCallAt - Date.now()) / 1000)} seconds before calling this space again.` });
+    }
+    if (room.callers.size >= 6 && !room.callers.has(socket.id)) {
+      return reply({ error: 'Calls support up to 6 participants.' });
+    }
+    if (!room.call) {
+      room.call = { id: nanoid(), callerId: socket.id, callerName: currentUser.name, video: video === true,
+        pending: new Set([...room.users.keys()].filter(id => id !== socket.id)), connected: false, media: new Map() };
+      const id = room.call.id;
+      const roomId = currentRoom;
+      room.call.timer = setTimeout(() => {
+        if (rooms.get(roomId)?.call?.id !== id) return;
+        room.call.pending.clear();
+        if (!room.call.connected) finishCall(roomId, 'No answer');
+        else publishCall(roomId);
+      }, 30000);
+      room.call.timer.unref();
+    }
+    const peers = [...room.callers].filter(id => id !== socket.id);
+    room.callers.add(socket.id);
+    if (!room.call.media.has(socket.id)) room.call.media.set(socket.id, { muted: false, camera: false });
+    room.call.pending.delete(socket.id);
+    if (room.callers.size > 1) room.call.connected = true;
+    reply({ peers, callId: room.call.id, video: room.call.video });
+    if (!callId) {
+      for (const id of room.call.pending) io.to(id).emit('call-incoming', callDetails(room));
+    }
+    publishCall(currentRoom);
+  });
+  socket.on('call-decline', ({ callId } = {}) => {
+    const room = rooms.get(currentRoom);
+    if (!room?.call || room.call.id !== callId) return;
+    room.call.pending.delete(socket.id);
+    if (!room.call.pending.size && !room.call.connected) finishCall(currentRoom, 'Everyone declined');
+    else publishCall(currentRoom);
+  });
+  socket.on('call-leave', ({ callId } = {}) => {
+    if (rooms.get(currentRoom)?.call?.id === callId) leaveCall(currentRoom, socket.id);
+  });
+  socket.on('call-signal', (payload) => {
+    const room = rooms.get(currentRoom);
+    if (!room?.callers.has(socket.id) || !payload || typeof payload !== 'object') return;
+    const { to, description, candidate, callId, restart } = payload;
+    if (callId !== room.call?.id) return;
+    if (to === socket.id || !room.callers.has(to)) return;
+    if (description && (!['offer', 'answer'].includes(description.type) ||
+        typeof description.sdp !== 'string' || description.sdp.length > 65536)) return;
+    if (candidate && (typeof candidate.candidate !== 'string' || candidate.candidate.length > 4096)) return;
+    if (!description && !candidate && restart !== true) return;
+    io.to(to).emit('call-signal', { from: socket.id, description, candidate, callId, restart: restart === true });
+  });
 
   // ── Join Room ──────────────────────────────────────────────────────────────
   socket.on('join-room', ({ roomId, displayName }) => {
@@ -228,6 +342,7 @@ io.on('connection', (socket) => {
       users: Array.from(room.users.values()),
       myId: socket.id,
     });
+    socket.emit('call-state', { participants: [...room.callers], call: callDetails(room) });
 
     // Notify all in room of new user
     io.to(safeRoom).emit('user-list', { users: Array.from(room.users.values()) });
@@ -428,6 +543,7 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     const user = room.users.get(sock.id);
+    leaveCall(roomId, sock.id);
     room.users.delete(sock.id);
     sock.leave(roomId);
 

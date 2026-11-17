@@ -51,6 +51,52 @@
   --shadow-card: 0 0 0 1px rgba(255,255,255,0.04), 0 8px 32px rgba(0,0,0,0.4);
 }
 
+.call-panel { padding: 14px 20px; background: var(--bg-surface); border-bottom: 1px solid var(--border); max-height: 55vh; overflow: auto; flex-shrink: 0; }
+.call-panel[hidden], .call-panel [hidden] { display: none !important; }
+.call-panel > p { margin-bottom: 10px; font-size: 13px; color: var(--text-secondary); }
+.call-videos { display: flex; gap: 10px; overflow-x: auto; }
+.call-tile { position: relative; flex: 0 0 200px; height: 135px; background: var(--bg-card); border-radius: 12px; overflow: hidden; }
+.call-tile video { width: 100%; height: 100%; object-fit: cover; }
+.call-tile span { position: absolute; bottom: 8px; left: 8px; background: #000b; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+.call-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.call-controls button, .call-controls select { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.call-controls label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.call-controls input { width: 85px; accent-color: var(--accent-purple); }
+.call-controls button[aria-pressed="true"] { background: #763047; }
+.call-controls .call-end { background: #b91c3c; }
+.incoming-call[hidden] { display: none; }
+.incoming-call { position: fixed; inset: 0; z-index: 1000; background: #080811dd; display: grid; place-items: center; padding: 20px; }
+.incoming-call-card { width: min(100%, 380px); padding: 32px; background: var(--bg-card); border: 1px solid var(--border-focus); border-radius: 24px; text-align: center; box-shadow: 0 24px 90px #0009; }
+.incoming-call-card h2 { margin: 16px 0; font-size: 23px; }
+.incoming-call-card p { color: var(--text-secondary); margin: 12px 0; line-height: 1.5; }
+.incoming-call-card .call-controls { justify-content: center; margin-top: 24px; }
+.incoming-call-card button { padding: 12px 24px; font-size: 15px; }
+.call-controls .call-accept { background: #15803d; }
+.call-ring-symbol { display: inline-block; font-size: 45px; color: var(--accent-green); animation: callRing 1s ease-in-out infinite; }
+@keyframes callRing { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
+@media (prefers-reduced-motion: reduce) { .call-ring-symbol { animation: none; } }
+.call-controls button:disabled { opacity: .5; cursor: wait; }
+.call-tile { border: 2px solid transparent; transition: border-color .15s; }
+.call-tile.is-speaking { border-color: var(--accent-green); box-shadow: 0 0 12px #22c55e33; }
+.call-tile span { max-width: calc(100% - 16px); font-size: 11px; }
+#js-call-notice { color: #fbbf24; line-height: 1.5; }
+.call-expanded, .call-panel:fullscreen { position: fixed; inset: 0; z-index: 900; max-height: none; height: 100dvh; display: flex; flex-direction: column; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
+.call-expanded .call-videos, .call-panel:fullscreen .call-videos { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); overflow: auto; position: relative; }
+.call-expanded .call-tile, .call-panel:fullscreen .call-tile { height: 100%; min-height: 180px; }
+.call-expanded #js-local-tile, .call-panel:fullscreen #js-local-tile { position: absolute; right: 12px; top: 12px; width: 130px; height: 100px; min-height: 0; z-index: 2; box-shadow: 0 4px 16px #0008; }
+.call-expanded .call-controls, .call-panel:fullscreen .call-controls { justify-content: center; padding-top: 12px; }
+.call-controls button { min-height: 44px; }
+@media (max-width: 600px) {
+  .call-panel { padding: 12px; }
+  .call-expanded, .call-panel:fullscreen { padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
+  .call-controls { gap: 10px; }
+  .call-controls button, .call-controls select { min-height: 46px; padding: 12px; }
+  .call-expanded .call-videos, .call-panel:fullscreen .call-videos { grid-template-columns: 1fr; }
+  .chat-header-actions { gap: 5px; }
+  .chat-header-info { min-width: 0; }
+  .space-name-text { overflow-wrap: anywhere; }
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {

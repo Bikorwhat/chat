@@ -4,6 +4,8 @@
   "description": "Ephemeral zero-database real-time chat platform",
   "main": "server.js",
   "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:calls:browser": "node test/browser-calls.cjs",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
